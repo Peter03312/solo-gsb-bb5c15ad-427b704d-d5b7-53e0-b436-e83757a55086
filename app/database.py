@@ -49,7 +49,51 @@ def init_db() -> None:
     from app import models  # noqa: F401  确保模型已注册
 
     Base.metadata.create_all(bind=engine)
+    _ensure_unique_revisions()
     _apply_lightweight_migrations()
+
+
+class RevisionConflictError(RuntimeError):
+    """历史库存在同号多份资料：启动时明确报出冲突修订号并拒绝启动。"""
+
+
+def find_duplicate_revisions(eng=None) -> list[str]:
+    """检查两类资料是否存在同号多份；返回冲突描述列表（空列表 = 无冲突）。
+
+    旧版本并发录入可能把同一修订号分配给多份资料；若带病启动，按号查询、
+    核算与确认将引用不确定的资料，故启动时必须明确报出冲突修订号，
+    不能任取其一。
+    """
+    from sqlalchemy import text
+
+    eng = eng or engine
+    problems: list[str] = []
+    with eng.connect() as conn:
+        for table, label in (
+            ("slot_revisions", "槽位资料"),
+            ("manifest_revisions", "箱清单"),
+        ):
+            rows = conn.execute(
+                text(
+                    f"SELECT revision FROM {table} "
+                    "GROUP BY revision HAVING COUNT(*) > 1 ORDER BY revision"
+                )
+            ).all()
+            if rows:
+                nums = "、".join(str(r[0]) for r in rows)
+                problems.append(f"{label}冲突修订号：{nums}")
+    return problems
+
+
+def _ensure_unique_revisions() -> None:
+    """启动校验：历史库同号多份资料时拒绝启动并列出全部冲突修订号。"""
+    problems = find_duplicate_revisions()
+    if problems:
+        raise RevisionConflictError(
+            "数据库存在同号多份资料的历史冲突，服务拒绝启动（按修订号查询、"
+            "核算与确认须指向唯一资料，不能任取其一）。请人工核对并归并以下"
+            "冲突修订后重启：" + "；".join(problems)
+        )
 
 
 def _apply_lightweight_migrations() -> None:
@@ -68,6 +112,51 @@ def _apply_lightweight_migrations() -> None:
         if table not in inspector.get_table_names():
             return set()
         return {c["name"] for c in inspector.get_columns(table)}
+
+    # 资料修订号唯一索引：新库由 create_all 的唯一约束直接建出；
+    # 历史库在此补建唯一索引兜底（启动前的冲突检查已保证无同号多份，
+    # 否则索引建不出来）。已有唯一索引（含表级唯一约束的自动索引）则跳过。
+    def has_unique_revision_index(table: str) -> bool:
+        with engine.connect() as conn:
+            for row in conn.execute(
+                text(f"PRAGMA index_list({table})")
+            ).all():
+                # PRAGMA index_list: (seq, name, unique, origin, partial)
+                if not row[2]:
+                    continue
+                cols = conn.execute(
+                    text(f"PRAGMA index_info({row[1]})")
+                ).all()
+                if [c[2] for c in cols] == ["revision"]:
+                    return True
+        return False
+
+    table_names = inspector.get_table_names()
+    need_slot_uq = (
+        "slot_revisions" in table_names
+        and not has_unique_revision_index("slot_revisions")
+    )
+    need_manifest_uq = (
+        "manifest_revisions" in table_names
+        and not has_unique_revision_index("manifest_revisions")
+    )
+    with engine.begin() as conn:
+        if need_slot_uq:
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS "
+                    "uq_slot_revisions_revision "
+                    "ON slot_revisions (revision)"
+                )
+            )
+        if need_manifest_uq:
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS "
+                    "uq_manifest_revisions_revision "
+                    "ON manifest_revisions (revision)"
+                )
+            )
 
     added_actuals = columns("loading_actuals")
     with engine.begin() as conn:

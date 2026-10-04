@@ -76,48 +76,109 @@ class BlockedError(Exception):
 
 
 def create_slot_revision(db: Session, data: SlotDataIn) -> models.SlotRevision:
-    next_rev = (db.scalar(select(func.max(models.SlotRevision.revision))) or 0) + 1
-    rev = models.SlotRevision(
-        revision=next_rev,
-        min_moment=data.min_moment,
-        max_moment=data.max_moment,
-    )
-    for s in data.slots:
-        rev.slots.append(
-            models.SlotRow(
-                code=s.code, stack=s.stack, tier=s.tier,
-                capacity=s.capacity, arm=s.arm,
-            )
-        )
-    for a, b in {tuple(sorted(p)) for p in data.adjacency}:
-        rev.adjacencies.append(models.AdjacencyRow(slot_a=a, slot_b=b))
-    for a, b in {
+    """录入槽位资料新修订：写锁内取号，修订号与整份资料原子落库。
+
+    修订号分配与整份资料写入在同一 ``BEGIN IMMEDIATE`` 写事务内完成：
+    并发录入被串行化，每次成功提交各自取得唯一且递增的修订号；任何失败
+    整体回滚，不留半份资料。修订号唯一索引兜底，按号查询/核算/确认始终
+    指向同一份资料。
+    """
+    slot_rows = [
+        (s.code, s.stack, s.tier, s.capacity, s.arm) for s in data.slots
+    ]
+    adjacency_rows = sorted({tuple(sorted(p)) for p in data.adjacency})
+    incompat_rows = sorted({
         tuple(sorted((p[0].strip(), p[1].strip())))
         for p in data.incompatible_classes
-    }:
-        rev.incompatibilities.append(models.IncompatRow(class_a=a, class_b=b))
-    db.add(rev)
-    db.commit()
-    db.refresh(rev)
-    return rev
+    })
+    db.rollback()
+
+    from app.database import engine
+
+    conn = engine.pool.connect()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("BEGIN IMMEDIATE")
+        # 写锁内取号：并发录入串行化，修订号唯一且按提交先后递增
+        cursor.execute("SELECT COALESCE(MAX(revision), 0) + 1 FROM slot_revisions")
+        next_rev = cursor.fetchone()[0]
+        now = models._utcnow().strftime("%Y-%m-%d %H:%M:%S.%f")
+        cursor.execute(
+            "INSERT INTO slot_revisions (revision, min_moment, max_moment, "
+            "created_at) VALUES (?, ?, ?, ?)",
+            (next_rev, data.min_moment, data.max_moment, now),
+        )
+        rev_id = cursor.lastrowid
+        cursor.executemany(
+            "INSERT INTO slots (revision_id, code, stack, tier, capacity, arm) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            [(rev_id, *row) for row in slot_rows],
+        )
+        cursor.executemany(
+            "INSERT INTO adjacencies (revision_id, slot_a, slot_b) "
+            "VALUES (?, ?, ?)",
+            [(rev_id, a, b) for a, b in adjacency_rows],
+        )
+        cursor.executemany(
+            "INSERT INTO incompatibilities (revision_id, class_a, class_b) "
+            "VALUES (?, ?, ?)",
+            [(rev_id, a, b) for a, b in incompat_rows],
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+    db.expire_all()
+    return get_slot_revision(db, next_rev)
 
 
 def create_manifest_revision(db: Session, data: ManifestIn) -> models.ManifestRevision:
-    next_rev = (db.scalar(select(func.max(models.ManifestRevision.revision))) or 0) + 1
-    rev = models.ManifestRevision(revision=next_rev)
-    for c in data.containers:
-        rev.containers.append(
-            models.ContainerRow(
-                no=c.no,
-                weight=c.weight,
-                hazmat=c.hazmat,
-                discharge_order=c.discharge_order,
-            )
+    """录入箱清单新修订：写锁内取号，修订号与整份清单原子落库。
+
+    并发安全与原子性约定同 ``create_slot_revision``：成功提交取得本类别
+    唯一且递增的修订号；失败整体回滚，不留半份清单。
+    """
+    container_rows = [
+        (c.no, c.weight, c.hazmat, c.discharge_order) for c in data.containers
+    ]
+    db.rollback()
+
+    from app.database import engine
+
+    conn = engine.pool.connect()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("BEGIN IMMEDIATE")
+        # 写锁内取号：并发录入串行化，修订号唯一且按提交先后递增
+        cursor.execute(
+            "SELECT COALESCE(MAX(revision), 0) + 1 FROM manifest_revisions"
         )
-    db.add(rev)
-    db.commit()
-    db.refresh(rev)
-    return rev
+        next_rev = cursor.fetchone()[0]
+        now = models._utcnow().strftime("%Y-%m-%d %H:%M:%S.%f")
+        cursor.execute(
+            "INSERT INTO manifest_revisions (revision, created_at) VALUES (?, ?)",
+            (next_rev, now),
+        )
+        rev_id = cursor.lastrowid
+        cursor.executemany(
+            "INSERT INTO containers (revision_id, no, weight, hazmat, "
+            "discharge_order) VALUES (?, ?, ?, ?, ?)",
+            [(rev_id, *row) for row in container_rows],
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+    db.expire_all()
+    return get_manifest_revision(db, next_rev)
 
 
 def get_slot_revision(db: Session, revision: int | None) -> models.SlotRevision:

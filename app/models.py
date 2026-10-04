@@ -35,6 +35,8 @@ class SlotRevision(Base):
     __tablename__ = "slot_revisions"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # 修订号在本类别内唯一且递增（写锁内取号；唯一约束兜底，
+    # 保证按号查询/核算/确认始终指向同一份资料）
     revision: Mapped[int] = mapped_column(Integer, nullable=False)
     min_moment: Mapped[float] = mapped_column(Float, nullable=False)
     max_moment: Mapped[float] = mapped_column(Float, nullable=False)
@@ -52,6 +54,7 @@ class SlotRevision(Base):
 
     __table_args__ = (
         CheckConstraint("min_moment <= max_moment", name="ck_moment_range"),
+        UniqueConstraint("revision", name="uq_slot_revisions_revision"),
     )
 
 
@@ -113,11 +116,16 @@ class ManifestRevision(Base):
     __tablename__ = "manifest_revisions"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # 修订号在本类别内唯一且递增（写锁内取号；唯一约束兜底）
     revision: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     containers: Mapped[list["ContainerRow"]] = relationship(
         back_populates="rev", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        UniqueConstraint("revision", name="uq_manifest_revisions_revision"),
     )
 
 
