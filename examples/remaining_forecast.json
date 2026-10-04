@@ -1,0 +1,13 @@
+{
+  "expected_actual_version": 1,
+  "cutoff_minute": 22,
+  "in_progress": [
+    {"container_no": "C003", "remaining_duration": 4}
+  ],
+  "pending": [
+    {"container_no": "C004", "duration": 6, "release_minute": 0, "deadline_minute": 60}
+  ],
+  "crane_downtimes": [
+    {"crane_no": 1, "start_minute": 24, "end_minute": 30}
+  ]
+}

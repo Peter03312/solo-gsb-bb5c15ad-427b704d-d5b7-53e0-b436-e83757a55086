@@ -1,0 +1,5 @@
+{
+  "events": [
+    {"seq": 7, "event_type": "finish", "container_no": "C001", "crane_no": 1, "minute": 5}
+  ]
+}

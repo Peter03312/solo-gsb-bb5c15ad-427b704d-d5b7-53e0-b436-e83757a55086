@@ -1,0 +1,6 @@
+{
+  "release_no": "RELEASE-20261003-0001",
+  "handover_id": "<handover_id>",
+  "expected_scan_version": 2,
+  "cutoff_minute": 120
+}

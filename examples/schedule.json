@@ -1,0 +1,9 @@
+{
+  "crane_count": 2,
+  "entries": [
+    {"no": "C001", "duration": 8,  "release_minute": 0, "deadline_minute": 60},
+    {"no": "C002", "duration": 12, "release_minute": 0, "deadline_minute": 60},
+    {"no": "C003", "duration": 10, "release_minute": 5, "deadline_minute": 60},
+    {"no": "C004", "duration": 6,  "release_minute": 0, "deadline_minute": 60}
+  ]
+}

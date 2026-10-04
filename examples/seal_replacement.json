@@ -1,0 +1,9 @@
+{
+  "replacement_no": "REPLACE-20261004-0001",
+  "container_no": "C001",
+  "old_seal_no": "SEAL-0001",
+  "new_seal_no": "SEAL-0099",
+  "replace_minute": 115,
+  "reason": "到港开箱查验发现原封签损坏，换发备用封签",
+  "expected_seal_version": 0
+}

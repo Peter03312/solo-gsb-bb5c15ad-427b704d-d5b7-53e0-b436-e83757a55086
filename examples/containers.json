@@ -1,0 +1,8 @@
+{
+  "containers": [
+    {"no": "C004", "weight": 25.0, "hazmat": null, "discharge_order": 2},
+    {"no": "C003", "weight": 22.0, "hazmat": "1", "discharge_order": 2},
+    {"no": "C002", "weight": 20.0, "hazmat": null, "discharge_order": 1},
+    {"no": "C001", "weight": 10.0, "hazmat": null, "discharge_order": 1}
+  ]
+}

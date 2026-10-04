@@ -1,0 +1,7 @@
+{
+  "handover_no": "HANDOVER-20261002-0001",
+  "cutoff_minute": 30,
+  "expected_actual_version": 1,
+  "valid_seqs": [1, 2, 3, 4],
+  "max_finish_delay_minutes": 5
+}

@@ -1,0 +1,8 @@
+{
+  "events": [
+    {"seq": 1, "event_type": "start",  "container_no": "C001", "crane_no": 1, "minute": 0},
+    {"seq": 2, "event_type": "finish", "container_no": "C001", "crane_no": 1, "minute": 9},
+    {"seq": 3, "event_type": "start",  "container_no": "C002", "crane_no": 1, "minute": 9},
+    {"seq": 4, "event_type": "finish", "container_no": "C002", "crane_no": 1, "minute": 22}
+  ]
+}

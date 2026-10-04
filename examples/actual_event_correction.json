@@ -1,0 +1,12 @@
+{
+  "seq": 3,
+  "expected_version": 1,
+  "request_id": "CORR-20261002-0001",
+  "event": {
+    "seq": 3,
+    "event_type": "start",
+    "container_no": "C002",
+    "crane_no": 1,
+    "minute": 11
+  }
+}

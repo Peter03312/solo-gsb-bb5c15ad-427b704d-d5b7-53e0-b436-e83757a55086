@@ -1,0 +1,21 @@
+{
+  "slots": [
+    {"code": "A01", "stack": "A", "tier": 1, "capacity": 100.0, "arm": 2.0},
+    {"code": "A02", "stack": "A", "tier": 2, "capacity": 100.0, "arm": 3.0},
+    {"code": "A03", "stack": "A", "tier": 3, "capacity": 100.0, "arm": 4.0},
+    {"code": "B01", "stack": "B", "tier": 1, "capacity": 100.0, "arm": 2.0},
+    {"code": "B02", "stack": "B", "tier": 2, "capacity": 100.0, "arm": 3.0},
+    {"code": "B03", "stack": "B", "tier": 3, "capacity": 100.0, "arm": 4.0}
+  ],
+  "adjacency": [
+    ["A01", "B01"],
+    ["A02", "B02"],
+    ["A03", "B03"]
+  ],
+  "incompatible_classes": [
+    ["1", "5"],
+    ["3", "4.3"]
+  ],
+  "min_moment": -100000,
+  "max_moment": 100000
+}

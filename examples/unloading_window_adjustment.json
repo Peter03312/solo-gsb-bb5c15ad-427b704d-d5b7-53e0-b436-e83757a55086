@@ -1,0 +1,9 @@
+{
+  "application_no": "WINDOW-ADJ-20261004-001",
+  "expected_progress_version": 1,
+  "expected_window_version": 0,
+  "ports": [
+    {"discharge_order": 1, "min_remaining_moment": -80, "max_remaining_moment": -10},
+    {"discharge_order": 2, "min_remaining_moment": -60, "max_remaining_moment": 0}
+  ]
+}
