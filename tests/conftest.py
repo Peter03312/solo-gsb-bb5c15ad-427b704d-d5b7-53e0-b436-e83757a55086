@@ -73,6 +73,7 @@ def _clean_tables():
         db.query(models.IncompatRow).delete()
         db.query(models.SlotRow).delete()
         db.query(models.SlotRevision).delete()
+        db.query(models.RevisionCounter).delete()
         db.commit()
     finally:
         db.close()

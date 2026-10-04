@@ -7,7 +7,7 @@ import json
 import math
 from datetime import datetime, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app import models
@@ -75,8 +75,33 @@ class BlockedError(Exception):
 # ---------- 资料修订 ----------
 
 
+def _allocate_revision(db: Session, category: str) -> int:
+    """在本类别取得唯一且递增的修订号。
+
+    事务首个语句即写本类别计数器：SQLite 写语句立即取得写锁，并发录入
+    在此按实际提交先后串行化，不会有两个成功请求拿到同号；计数器递增
+    与整份资料在同一事务提交/回滚——失败既不留半份资料，也不烧号。
+    """
+    db.execute(
+        text(
+            "INSERT INTO revision_counters (category, last_allocated) "
+            "VALUES (:category, 1) "
+            "ON CONFLICT(category) DO UPDATE "
+            "SET last_allocated = last_allocated + 1"
+        ),
+        {"category": category},
+    )
+    return int(db.scalar(
+        text(
+            "SELECT last_allocated FROM revision_counters "
+            "WHERE category = :category"
+        ),
+        {"category": category},
+    ))
+
+
 def create_slot_revision(db: Session, data: SlotDataIn) -> models.SlotRevision:
-    next_rev = (db.scalar(select(func.max(models.SlotRevision.revision))) or 0) + 1
+    next_rev = _allocate_revision(db, models.SLOT_REVISION_CATEGORY)
     rev = models.SlotRevision(
         revision=next_rev,
         min_moment=data.min_moment,
@@ -103,7 +128,7 @@ def create_slot_revision(db: Session, data: SlotDataIn) -> models.SlotRevision:
 
 
 def create_manifest_revision(db: Session, data: ManifestIn) -> models.ManifestRevision:
-    next_rev = (db.scalar(select(func.max(models.ManifestRevision.revision))) or 0) + 1
+    next_rev = _allocate_revision(db, models.MANIFEST_REVISION_CATEGORY)
     rev = models.ManifestRevision(revision=next_rev)
     for c in data.containers:
         rev.containers.append(

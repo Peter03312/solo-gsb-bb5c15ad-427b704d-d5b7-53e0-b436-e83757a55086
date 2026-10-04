@@ -30,6 +30,27 @@ def _new_id() -> str:
 
 from app.database import Base  # noqa: E402
 
+# 资料修订号计数器类别（revision_counters.category）
+SLOT_REVISION_CATEGORY = "slots"
+MANIFEST_REVISION_CATEGORY = "manifests"
+
+
+class RevisionCounter(Base):
+    """资料修订号计数器（每资料类别一行）。
+
+    录入在事务首个语句即写本表（upsert 递增）：SQLite 写语句立即取得
+    写锁，并发录入按实际提交先后串行化，每次成功提交取得唯一且递增的
+    修订号；计数器递增与整份资料在同一事务提交/回滚，失败不留
+    半份资料、也不烧号。
+    """
+
+    __tablename__ = "revision_counters"
+
+    category: Mapped[str] = mapped_column(String(32), primary_key=True)
+    last_allocated: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+
 
 class SlotRevision(Base):
     __tablename__ = "slot_revisions"
@@ -52,6 +73,9 @@ class SlotRevision(Base):
 
     __table_args__ = (
         CheckConstraint("min_moment <= max_moment", name="ck_moment_range"),
+        # 修订号唯一：按号查询/核算/确认始终指向同一份资料（兜底，
+        # 并发唯一性由计数器在写锁内分配保证）
+        UniqueConstraint("revision", name="uq_slot_revision_no"),
     )
 
 
@@ -118,6 +142,12 @@ class ManifestRevision(Base):
 
     containers: Mapped[list["ContainerRow"]] = relationship(
         back_populates="rev", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        # 修订号唯一：按号查询/核算/确认始终指向同一份资料（兜底，
+        # 并发唯一性由计数器在写锁内分配保证）
+        UniqueConstraint("revision", name="uq_manifest_revision_no"),
     )
 
 

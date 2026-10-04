@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.config import get_settings
@@ -49,7 +49,48 @@ def init_db() -> None:
     from app import models  # noqa: F401  确保模型已注册
 
     Base.metadata.create_all(bind=engine)
+    check_revision_conflicts()
     _apply_lightweight_migrations()
+
+
+def find_revision_conflicts(conn) -> dict[str, list[int]]:
+    """查询各类别中同号多份的资料修订号（无冲突返回空 dict）。"""
+    conflicts: dict[str, list[int]] = {}
+    for table, label in (
+        ("slot_revisions", "槽位资料"),
+        ("manifest_revisions", "箱清单"),
+    ):
+        rows = conn.execute(
+            text(
+                f"SELECT revision FROM {table} "
+                "GROUP BY revision HAVING COUNT(*) > 1 ORDER BY revision"
+            )
+        ).all()
+        if rows:
+            conflicts[label] = [int(r[0]) for r in rows]
+    return conflicts
+
+
+def check_revision_conflicts(eng=None) -> None:
+    """启动前置检查：历史库存在同号多份资料时明确报出冲突修订号并中止。
+
+    同一修订号对应多份不同资料时无法确定唯一资料，服务不任取其一；
+    须人工核对并清理重复修订（每个修订号仅保留一份）后再启动。
+    """
+    eng = eng if eng is not None else engine
+    with eng.begin() as conn:
+        conflicts = find_revision_conflicts(conn)
+    if not conflicts:
+        return
+    parts = [
+        f"{label}修订号 {'、'.join(str(r) for r in revs)} 各存在多份资料"
+        for label, revs in conflicts.items()
+    ]
+    raise RuntimeError(
+        "启动中止：历史库存在同号多份资料（" + "；".join(parts) + "）。"
+        "同一修订号对应多份不同资料，无法确定唯一资料，服务不任取其一；"
+        "请人工核对并清理重复修订（每个修订号仅保留一份）后再启动。"
+    )
 
 
 def _apply_lightweight_migrations() -> None:
@@ -150,3 +191,61 @@ def _apply_lightweight_migrations() -> None:
                 text("ALTER TABLE seal_releases ADD COLUMN seal_version "
                      "INTEGER NOT NULL DEFAULT 0")
             )
+
+    _migrate_revision_uniqueness(inspector)
+
+
+def _migrate_revision_uniqueness(inspector) -> None:
+    """资料修订号并发唯一分配的幂等补齐（历史库）。
+
+    1. 为 slot_revisions.revision / manifest_revisions.revision 补唯一索引
+       （新库由 create_all 的唯一约束直接建出，此处跳过）；历史库若存在
+       同号多份资料，init_db 的启动前置检查已先中止，不会走到这里。
+    2. revision_counters 新表由 create_all 建出；历史库按各类别当前最大
+       修订号回填计数器，保证下一份资料取得比全部历史修订更大的唯一号。
+    """
+    from app import models
+
+    def has_unique_on(table: str, column: str) -> bool:
+        if table not in inspector.get_table_names():
+            return True  # 表不存在时由 create_all 按最新结构建出
+        for uc in inspector.get_unique_constraints(table):
+            if uc.get("column_names") == [column]:
+                return True
+        for ix in inspector.get_indexes(table):
+            if ix.get("unique") and ix.get("column_names") == [column]:
+                return True
+        return False
+
+    with engine.begin() as conn:
+        if not has_unique_on("slot_revisions", "revision"):
+            conn.execute(
+                text("CREATE UNIQUE INDEX uq_slot_revision_no "
+                     "ON slot_revisions (revision)")
+            )
+        if not has_unique_on("manifest_revisions", "revision"):
+            conn.execute(
+                text("CREATE UNIQUE INDEX uq_manifest_revision_no "
+                     "ON manifest_revisions (revision)")
+            )
+
+    if "revision_counters" not in inspector.get_table_names():
+        return
+    with engine.begin() as conn:
+        for category, table in (
+            (models.SLOT_REVISION_CATEGORY, "slot_revisions"),
+            (models.MANIFEST_REVISION_CATEGORY, "manifest_revisions"),
+        ):
+            has_row = conn.execute(
+                text("SELECT 1 FROM revision_counters WHERE category = :c"),
+                {"c": category},
+            ).first()
+            if has_row is None:
+                max_rev = conn.execute(
+                    text(f"SELECT COALESCE(MAX(revision), 0) FROM {table}")
+                ).scalar_one()
+                conn.execute(
+                    text("INSERT INTO revision_counters "
+                         "(category, last_allocated) VALUES (:c, :n)"),
+                    {"c": category, "n": max_rev},
+                )
